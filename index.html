@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agendar Servicio de Lavado de Autos</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+        }
+        .service-card {
+            transition: border-color 0.3s, background-color 0.3s;
+        }
+        .service-card.selected {
+            border-color: #3b82f6;
+            background-color: rgba(59, 130, 246, 0.1);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center bg-slate-950 p-4">
+    <div class="bg-slate-900/60 backdrop-blur-md border border-white/10 rounded-3xl shadow-2xl max-w-md w-full p-8">
+        <img src="https://via.placeholder.com/300x150.png?text=Lavado+de+Autos" alt="Lavado de Autos" class="w-full mb-4 rounded-lg">
+        <h1 class="text-white text-2xl font-bold mb-4 text-center">Agendar Servicio de Lavado</h1>
+        <div id="services" class="mb-4">
+            <div class="service-card border border-white/10 rounded-lg p-4 mb-2 cursor-pointer" data-price="25000">
+                <h2 class="text-white">Lavado Básico</h2>
+                <p class="text-gray-400">Precio: 25,000 COP</p>
+            </div>
+            <div class="service-card border border-white/10 rounded-lg p-4 mb-2 cursor-pointer" data-price="45000">
+                <h2 class="text-white">Lavado Premium</h2>
+                <p class="text-gray-400">Precio: 45,000 COP</p>
+            </div>
+            <div class="service-card border border-white/10 rounded-lg p-4 mb-2 cursor-pointer" data-price="60000">
+                <h2 class="text-white">Lavado de Cojinería</h2>
+                <p class="text-gray-400">Precio: 60,000 COP</p>
+            </div>
+            <div class="flex items-center mb-2">
+                <input type="checkbox" id="homeService" class="mr-2" value="12000">
+                <label for="homeService" class="text-white">Servicio a Domicilio (+12,000 COP)</label>
+            </div>
+        </div>
+        <div class="text-white text-lg mb-4">Total: <span id="total">0</span> COP</div>
+        <button id="payButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded">Pagar con tarjeta o PSE</button>
+    </div>
+    <script>
+        const serviceCards = document.querySelectorAll('.service-card');
+        const totalDisplay = document.getElementById('total');
+        const homeServiceCheckbox = document.getElementById('homeService');
+        let total = 0;
+
+        serviceCards.forEach(card => {
+            card.addEventListener('click', () => {
+                serviceCards.forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                total = parseInt(card.dataset.price);
+                updateTotal();
+            });
+        });
+
+        homeServiceCheckbox.addEventListener('change', updateTotal);
+
+        function updateTotal() {
+            if (homeServiceCheckbox.checked) {
+                total += 12000;
+            }
+            totalDisplay.textContent = total;
+        }
+
+        document.getElementById('payButton').addEventListener('click', () => {
+            alert('Agendamiento exitoso. Total a pagar: ' + total + ' COP');
+        });
+    </script>
+</body>
+</html>
