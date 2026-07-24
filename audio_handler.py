@@ -6,8 +6,12 @@ load_dotenv()
 
 class AudioProcessor:
     def __init__(self):
-        # Inicializa el cliente oficial de OpenAI usando la API Key del .env
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # Obtenemos la key y limpiamos comillas accidentales de Render o del .env
+        api_key = os.getenv("OPENAI_API_KEY", "")
+        if api_key:
+            api_key = api_key.strip().strip('"').strip("'")
+            
+        self.client = OpenAI(api_key=api_key)
 
     def transcribe_audio_file(self, file_path: str) -> str:
         """
@@ -15,7 +19,8 @@ class AudioProcessor:
         y lo transcribe usando el modelo Whisper de OpenAI.
         """
         if not os.path.exists(file_path):
-            raise FileNotFoundError(f"No se encontró el archivo de audio en: {file_path}")
+            print(f"No se encontró el archivo de audio en: {file_path}")
+            return ""
             
         try:
             with open(file_path, "rb") as audio_file:
