@@ -28,13 +28,13 @@ def run_discovery_agent(state: AgentState) -> dict:
             "4. Criterio de Compilación (is_ready_for_mvp): Marca 'is_ready_for_mvp' en true ÚNICAMENTE cuando hayas propuesto un flujo claro y el usuario te haya dado luz verde o detalles suficientes sobre su operación.\n\n"
             "ESTRUCTURA DE RESPUESTA EN FORMATO JSON OBLIGATORIO:\n"
             "Debes responder ÚNICAMENTE en formato JSON válido estructurado así:\n"
-            "{\n"
+            "{{\n"
             '  "core_feature": "Descripción detallada del flujo propuesto y aceptado",\n'
             '  "platform": "Web / Mobile / WhatsApp Bot",\n'
             '  "target_audience": "Descripción del público objetivo",\n'
             '  "is_ready_for_mvp": false,\n'
             '  "followup_question": "Tu mensaje consultivo y empático para el usuario proponiendo opciones o guiándolo hacia la confirmación."\n'
-            "}"
+            "}}"
         )),
         ("user", (
             "Historial de Conversación: {chat_history}\n"
