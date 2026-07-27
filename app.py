@@ -196,7 +196,7 @@ async def whatsapp_webhook(
     
     session_storage[client_phone] = current_state
 
-    # Respuesta TwiML inmediata al usuario
+# 1. Definir el texto a enviar según el estado del MVP
     if current_state["is_ready_for_mvp"]:
         text_to_send = (
             "⚙️ *CoreIA Factory:* ¡Excelente! He recopilado toda la información requerida.\n\n"
@@ -207,12 +207,17 @@ async def whatsapp_webhook(
     else:
         text_to_send = current_state["followup_question"] or "Cuéntame más detalles sobre tu idea."
 
-    # Escapar caracteres especiales para XML válido
-    safe_text_to_send = escape(text_to_send)
-    xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Message>{safe_text_to_send}</Message>
-</Response>"""
+    # 2. Enviar el mensaje explícitamente usando la API REST de Twilio (garantiza entrega en producción)
+    try:
+        twilio_client.messages.create(
+            body=text_to_send,
+            from_=TWILIO_NUMBER,
+            to=client_phone
+        )
+        print(f"--- MENSAJE ENVIADO EXITOSAMENTE VÍA API A {client_phone} ---")
+    except Exception as err_msg:
+        print(f"❌ Error al enviar mensaje vía API: {err_msg}")
 
-    print(f"--- RESPUESTA TWIML ENVIADA EXITOSAMENTE A {client_phone} ---")
-    return Response(content=xml_response, media_type="application/xml")
+    # 3. Retornar TwiML vacío a Twilio para confirmar la recepción HTTP 200 OK
+    empty_twiml = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+    return Response(content=empty_twiml, media_type="application/xml")
