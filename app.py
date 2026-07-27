@@ -192,8 +192,11 @@ async def whatsapp_webhook(
     else:
         text_to_send = current_state["followup_question"]
 
-    # Inyectar el texto en TwiML y retornarlo
-    response.message(text_to_send)
+    # Creamos el XML exacto que Twilio exige para "Outgoing Reply"
+    xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Message>{text_to_send}</Message>
+</Response>"""
+
     print(f"--- RESPUESTA TWIML ENVIADA EXITOSAMENTE A {client_phone} ---")
-    
-    return Response(content=str(response), media_type="text/xml; charset=utf-8")
+    return Response(content=xml_response, media_type="application/xml")
