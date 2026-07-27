@@ -20,7 +20,7 @@ app = FastAPI(title="CoreIA Software Factory Webhook")
 audio_processor = AudioProcessor()
 
 # Priorizar el número en las variables de entorno de Render
-TWILIO_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "whatsapp:+14155238886")
+TWILIO_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "whatsapp:+573160513218")
 
 custom_http_client = TwilioHttpClient(timeout=5.0)
 twilio_client = Client(
