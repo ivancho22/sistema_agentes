@@ -8,7 +8,7 @@ from twilio.rest import Client
 from twilio.http.http_client import TwilioHttpClient
 from dotenv import load_dotenv
 
-# Importaciones de tu Grafo
+# Importaciones de tu Grafo y Módulos
 from audio_handler import AudioProcessor
 from graph import app_graph
 from state import MVPInformation
@@ -19,7 +19,7 @@ load_dotenv()
 app = FastAPI(title="CoreIA Software Factory Webhook")
 audio_processor = AudioProcessor()
 
-# Priorizar Sandbox si la variable no está explícitamente definida en Render
+# Priorizar el número en las variables de entorno de Render
 TWILIO_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "whatsapp:+14155238886")
 
 custom_http_client = TwilioHttpClient(timeout=5.0)
@@ -50,25 +50,37 @@ def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url:
         host_url = os.getenv("RENDER_EXTERNAL_URL", "https://coreia-factory.onrender.com")
         link_prototipo = f"{host_url}/prototipo/{clean_phone}"
         
+        # 1. MENSAJE 1: Enlace al Prototipo Interactivo
         summary = (
             f"🚀 *¡Tu prototipo interactivo está listo!* 🚀\n\n"
             f"🎨 *Prueba la aplicación aquí:*\n"
-            f"🔗 {link_prototipo}\n\n"
+            f"🔗 {link_prototipo}\n"
         )
 
-        if proposal:
-            summary += f"\n---\n📋 *Propuesta Comercial:*\n{proposal}\n"
-        
-        # Enviar mensaje vía API de Twilio
         twilio_client.messages.create(
             body=summary,
             from_=TWILIO_NUMBER,
             to=client_phone
         )
-        print(f"--- MVP Y PROPUESTA ENTREGADOS A {client_phone} ---")
+        print(f"--- PROTOTIPO ENTREGADO A {client_phone} ---")
+
+        # 2. MENSAJE 2: Propuesta Comercial (se envía en mensaje separado para evitar Error 21617)
+        if proposal:
+            proposal_msg = f"📋 *Propuesta Comercial:*\n\n{proposal}"
+            
+            # Recorte de seguridad a 1500 caracteres
+            if len(proposal_msg) > 1500:
+                proposal_msg = proposal_msg[:1450] + "\n\n...(Propuesta resumida para WhatsApp. Revisa el prototipo para más detalles)."
+
+            twilio_client.messages.create(
+                body=proposal_msg,
+                from_=TWILIO_NUMBER,
+                to=client_phone
+            )
+            print(f"--- PROPUESTA COMERCIAL ENTREGADA A {client_phone} ---")
+            
     except Exception as e:
         print(f"❌ ERROR EN FACTORÍA: {e}")
-        # Notificar al cliente si algo falla para no dejarlo esperando
         try:
             twilio_client.messages.create(
                 body=f"⚠️ Ocurrió un inconveniente al generar tu prototipo: {str(e)[:100]}. Por favor, intenta enviando un nuevo mensaje.",
@@ -149,7 +161,7 @@ async def whatsapp_webhook(
     current_state = session_storage[client_phone]
     current_state["client_phone"] = client_phone
     
-    # Procesar audio o texto
+    # Procesamiento de audio o texto
     if NumMedia > 0 and MediaUrl0 and "audio" in MediaContentType0:
         local_filename = f"audio_{client_phone.replace(':', '_')}.ogg"
         try:
@@ -173,7 +185,7 @@ async def whatsapp_webhook(
 
     current_state["last_transcription"] = transcription_text
 
-    # Agente de descubrimiento
+    # Ejecución del agente de descubrimiento
     from agents.discovery import run_discovery_agent
     discovery_result = run_discovery_agent(current_state)
     
@@ -184,7 +196,7 @@ async def whatsapp_webhook(
     
     session_storage[client_phone] = current_state
 
-    # Construir la respuesta directa que exige Meta vía TwiML
+    # Respuesta TwiML inmediata al usuario
     if current_state["is_ready_for_mvp"]:
         text_to_send = (
             "⚙️ *CoreIA Factory:* ¡Excelente! He recopilado toda la información requerida.\n\n"
@@ -195,7 +207,7 @@ async def whatsapp_webhook(
     else:
         text_to_send = current_state["followup_question"] or "Cuéntame más detalles sobre tu idea."
 
-    # Escapar texto para XML seguro y responder TwiML
+    # Escapar caracteres especiales para XML válido
     safe_text_to_send = escape(text_to_send)
     xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
