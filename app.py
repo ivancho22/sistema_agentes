@@ -18,7 +18,6 @@ load_dotenv()
 app = FastAPI(title="CoreIA Software Factory Webhook")
 audio_processor = AudioProcessor()
 
-# Número oficial de CoreIA para WhatsApp
 TWILIO_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "whatsapp:+573160513218")
 
 custom_http_client = TwilioHttpClient(timeout=5.0)
@@ -37,18 +36,12 @@ session_storage = {}
 
 def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url: str):
     try:
-        # Ejecución del grafo completo
         updated_state = app_graph.invoke(current_state)
         session_storage[client_phone] = updated_state
         info = updated_state.get("extracted_info", {})
-        
-        # 💡 Extraemos la propuesta comercial generada por el Agente Comercial
         proposal = updated_state.get("commercial_proposal", "")
         
-        # Formateamos el número para la URL
         clean_phone = client_phone.replace(":", "_").replace("+", "")
-        
-        # Enlaces únicos dinámicos por cliente
         link_local = f"http://127.0.0.1:8000/prototipo/{clean_phone}"
         
         summary = (
@@ -69,7 +62,6 @@ def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url:
             f"Haz clic en el enlace azul para probar las tarjetas, simular los pagos e interactuar con el prototipo.\n"
         )
 
-        # 💡 Si el Agente Comercial generó propuesta, la anexamos al mensaje de WhatsApp
         if proposal:
             summary += f"\n---\n{proposal}\n"
         
@@ -82,51 +74,39 @@ def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url:
     except Exception as e:
         print(f"Error en la factoría al notificar a {client_phone}: {e}")
 
-# 🌐 ENDPOINT DINÁMICO POR CLIENTE EN APP.PY
 @app.get("/prototipo/{client_phone}", response_class=HTMLResponse)
 async def ver_prototipo_cliente(client_phone: str):
     clean_phone = client_phone.replace("whatsapp_", "").replace(":", "_").replace("+", "").strip()
-    
-    # Posibles rutas donde se pudo guardar la carpeta
     possible_paths = [
         os.path.join("prototipos", client_phone, "index.html"),
         os.path.join("prototipos", f"whatsapp_{clean_phone}", "index.html"),
         os.path.join("prototipos", clean_phone, "index.html"),
         os.path.join("prototipos", "demo_user", "index.html")
     ]
-    
     for path in possible_paths:
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
                 return f.read()
-            
     return f"<h3>El prototipo para {client_phone} aún se está compilando en la factoría CoreIA. Por favor, recarga en unos segundos.</h3>"
 
-# Endpoint fallback genérico por compatibilidad
 @app.get("/prototipo", response_class=HTMLResponse)
 async def ver_prototipo_default():
     return "<h3>Por favor especifica tu enlace único de prototipo entregado por WhatsApp.</h3>"
 
 @app.post("/api/confirmar_interaccion")
 async def registrar_interaccion(data: InteractionData, background_tasks: BackgroundTasks):
-    print(f"--- NUEVA INTERACCIÓN EN PROTOTIPO DE {data.client_phone} ---")
-    print(f"Detalles: {data.service_details} | Total: {data.total_amount}")
-    
-    # Notificamos por WhatsApp que la simulación en la web funcionó
     mensaje_notificacion = (
         f"⚡ *Simulación de Transacción Exitosa en tu Prototipo:*\n\n"
         f"• *Servicio:* {data.service_details}\n"
         f"• *Valor:* {data.total_amount}\n\n"
         f"✅ *¡Tu software en producción estará conectado directamente a tu pasarela PSE y base de datos!*"
     )
-    
     background_tasks.add_task(
         twilio_client.messages.create,
         body=mensaje_notificacion,
         from_=TWILIO_NUMBER,
         to=data.client_phone
     )
-    
     return {"status": "ok", "message": "Interacción registrada con éxito"}
 
 @app.post("/whatsapp")
@@ -139,6 +119,8 @@ async def whatsapp_webhook(
     MediaContentType0: str = Form(None), 
     Body: str = Form("")        
 ):
+    # Respuesta nativa TwiML obligatoria para Meta
+    response = MessagingResponse()
     client_phone = From
 
     host_header = request.headers.get("host", "")
@@ -165,7 +147,7 @@ async def whatsapp_webhook(
     current_state = session_storage[client_phone]
     current_state["client_phone"] = client_phone
     
-    # Procesamiento de audio o texto
+    # Procesar audio o texto
     if NumMedia > 0 and MediaUrl0 and "audio" in MediaContentType0:
         local_filename = f"audio_{client_phone.replace(':', '_')}.ogg"
         try:
@@ -182,18 +164,13 @@ async def whatsapp_webhook(
     else:
         transcription_text = Body
 
-    # Si no hay texto audible o escrito
     if not transcription_text.strip():
-        message_body = "No logré entender el mensaje. ¿Podrías repetírmelo, por favor?"
-        try:
-            twilio_client.messages.create(body=message_body, from_=TWILIO_NUMBER, to=client_phone)
-        except Exception as e:
-            print(f"Error enviando respuesta vacía: {e}")
-        return Response(content="<Response></Response>", media_type="text/xml; charset=utf-8")
+        response.message("No logré entender el mensaje. ¿Podrías repetírmelo, por favor?")
+        return Response(content=str(response), media_type="text/xml; charset=utf-8")
 
     current_state["last_transcription"] = transcription_text
 
-    # Ejecutamos el agente de descubrimiento
+    # Agente de descubrimiento
     from agents.discovery import run_discovery_agent
     discovery_result = run_discovery_agent(current_state)
     
@@ -204,7 +181,7 @@ async def whatsapp_webhook(
     
     session_storage[client_phone] = current_state
 
-    # Definimos el mensaje a enviar según el estado de la conversación
+    # Construir la respuesta directa que exige Meta vía TwiML
     if current_state["is_ready_for_mvp"]:
         text_to_send = (
             "⚙️ *CoreIA Factory:* ¡Excelente! He recopilado toda la información requerida.\n\n"
@@ -215,15 +192,8 @@ async def whatsapp_webhook(
     else:
         text_to_send = current_state["followup_question"]
 
-    # Envío explícito a través del SDK de Twilio
-    try:
-        twilio_client.messages.create(
-            body=text_to_send,
-            from_=TWILIO_NUMBER,
-            to=client_phone
-        )
-        print(f"--- MENSAJE ENVIADO EXITOSAMENTE A {client_phone} VÍA TWILIO API ---")
-    except Exception as e:
-        print(f"Error enviando mensaje vía Twilio API: {e}")
-
-    return Response(content="<Response></Response>", media_type="text/xml; charset=utf-8")
+    # Inyectar el texto en TwiML y retornarlo
+    response.message(text_to_send)
+    print(f"--- RESPUESTA TWIML ENVIADA EXITOSAMENTE A {client_phone} ---")
+    
+    return Response(content=str(response), media_type="text/xml; charset=utf-8")
