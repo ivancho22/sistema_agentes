@@ -3,6 +3,7 @@ import requests
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from dotenv import load_dotenv
+import time
 
 # Importaciones de tu Grafo y Módulos
 from audio_handler import AudioProcessor
@@ -35,6 +36,7 @@ def send_green_api_message(chat_id: str, text: str):
     `chat_id` debe venir en formato internacional, ej: '573102476744@c.us'
     """
     try:
+        time.sleep(2.5)
         url = f"{GREEN_API_URL}/sendMessage/{GREEN_API_TOKEN}"
         
         # Asegurar formato correcto de chatId
