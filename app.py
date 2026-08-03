@@ -1,11 +1,7 @@
 import os
 import requests
-from xml.sax.saxutils import escape
-from fastapi import FastAPI, Form, Response, BackgroundTasks, Request
-from fastapi.responses import HTMLResponse
-from twilio.twiml.messaging_response import MessagingResponse
-from twilio.rest import Client
-from twilio.http.http_client import TwilioHttpClient
+from fastapi import FastAPI, BackgroundTasks, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from dotenv import load_dotenv
 
 # Importaciones de tu Grafo y Módulos
@@ -19,15 +15,10 @@ load_dotenv()
 app = FastAPI(title="CoreIA Software Factory Webhook")
 audio_processor = AudioProcessor()
 
-# Priorizar el número en las variables de entorno de Render
-TWILIO_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "whatsapp:+14155238886")
-
-custom_http_client = TwilioHttpClient(timeout=5.0)
-twilio_client = Client(
-    os.getenv("TWILIO_ACCOUNT_SID"), 
-    os.getenv("TWILIO_AUTH_TOKEN"),
-    http_client=custom_http_client
-)
+# --- CREDENCIALES GREEN API ---
+GREEN_ID_INSTANCE = os.getenv("GREEN_ID_INSTANCE", "7105438396")
+GREEN_API_TOKEN = os.getenv("GREEN_API_TOKEN", "TU_TOKEN_AQUI")
+GREEN_API_URL = f"https://7105.api.greenapi.com/waInstance{GREEN_ID_INSTANCE}"
 
 class InteractionData(BaseModel):
     client_phone: str
@@ -35,6 +26,34 @@ class InteractionData(BaseModel):
     total_amount: str
     
 session_storage = {}
+
+# --- FUNCIÓN HELPER PARA ENVIAR MENSAJES VÍA GREEN API ---
+def send_green_api_message(chat_id: str, text: str):
+    """
+    Envía un mensaje de texto por WhatsApp usando Green API.
+    `chat_id` debe venir en formato internacional, ej: '573102476744@c.us'
+    """
+    try:
+        url = f"{GREEN_API_URL}/sendMessage/{GREEN_API_TOKEN}"
+        
+        # Asegurar formato correcto de chatId
+        if not chat_id.endswith("@c.us"):
+            clean_number = chat_id.replace("whatsapp:", "").replace("+", "").replace(":", "").strip()
+            chat_id = f"{clean_number}@c.us"
+
+        payload = {
+            "chatId": chat_id,
+            "message": text
+        }
+        
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        print(f"--- MENSAJE ENVIADO VÍA GREEN API A {chat_id} ---")
+        return True
+    except Exception as e:
+        print(f"❌ ERROR ENVIANDO MENSAJE VÍA GREEN API: {e}")
+        return False
+
 
 def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url: str):
     try:
@@ -44,7 +63,7 @@ def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url:
         info = updated_state.get("extracted_info", {})
         proposal = updated_state.get("commercial_proposal", "")
         
-        clean_phone = client_phone.replace(":", "_").replace("+", "")
+        clean_phone = client_phone.replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "")
         
         # Construir la URL del prototipo alojado en Render
         host_url = os.getenv("RENDER_EXTERNAL_URL", "https://coreia-factory.onrender.com")
@@ -57,42 +76,28 @@ def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url:
             f"🔗 {link_prototipo}\n"
         )
 
-        twilio_client.messages.create(
-            body=summary,
-            from_=TWILIO_NUMBER,
-            to=client_phone
-        )
+        send_green_api_message(client_phone, summary)
         print(f"--- PROTOTIPO ENTREGADO A {client_phone} ---")
 
-        # 2. MENSAJE 2: Propuesta Comercial (se envía en mensaje separado para evitar Error 21617)
+        # 2. MENSAJE 2: Propuesta Comercial
         if proposal:
             proposal_msg = f"📋 *Propuesta Comercial:*\n\n{proposal}"
             
-            # Recorte de seguridad a 1500 caracteres
             if len(proposal_msg) > 1500:
                 proposal_msg = proposal_msg[:1450] + "\n\n...(Propuesta resumida para WhatsApp. Revisa el prototipo para más detalles)."
 
-            twilio_client.messages.create(
-                body=proposal_msg,
-                from_=TWILIO_NUMBER,
-                to=client_phone
-            )
+            send_green_api_message(client_phone, proposal_msg)
             print(f"--- PROPUESTA COMERCIAL ENTREGADA A {client_phone} ---")
             
     except Exception as e:
         print(f"❌ ERROR EN FACTORÍA: {e}")
-        try:
-            twilio_client.messages.create(
-                body=f"⚠️ Ocurrió un inconveniente al generar tu prototipo: {str(e)[:100]}. Por favor, intenta enviando un nuevo mensaje.",
-                from_=TWILIO_NUMBER,
-                to=client_phone
-            )
-        except Exception as tw_err:
-            print(f"Error al notificar excepción: {tw_err}")
+        err_msg = f"⚠️ Ocurrió un inconveniente al generar tu prototipo: {str(e)[:100]}. Por favor, intenta enviando un nuevo mensaje."
+        send_green_api_message(client_phone, err_msg)
+
 
 @app.get("/prototipo/{client_phone}", response_class=HTMLResponse)
 async def ver_prototipo_cliente(client_phone: str):
-    clean_phone = client_phone.replace("whatsapp_", "").replace(":", "_").replace("+", "").strip()
+    clean_phone = client_phone.replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "").strip()
     possible_paths = [
         os.path.join("prototipos", client_phone, "index.html"),
         os.path.join("prototipos", f"whatsapp_{clean_phone}", "index.html"),
@@ -105,9 +110,11 @@ async def ver_prototipo_cliente(client_phone: str):
                 return f.read()
     return f"<h3>El prototipo para {client_phone} aún se está compilando en la factoría CoreIA. Por favor, recarga en unos segundos.</h3>"
 
+
 @app.get("/prototipo", response_class=HTMLResponse)
 async def ver_prototipo_default():
     return "<h3>Por favor especifica tu enlace único de prototipo entregado por WhatsApp.</h3>"
+
 
 @app.post("/api/confirmar_interaccion")
 async def registrar_interaccion(data: InteractionData, background_tasks: BackgroundTasks):
@@ -118,25 +125,32 @@ async def registrar_interaccion(data: InteractionData, background_tasks: Backgro
         f"✅ *¡Tu software en producción estará conectado directamente a tu pasarela PSE y base de datos!*"
     )
     background_tasks.add_task(
-        twilio_client.messages.create,
-        body=mensaje_notificacion,
-        from_=TWILIO_NUMBER,
-        to=data.client_phone
+        send_green_api_message,
+        data.client_phone,
+        mensaje_notificacion
     )
     return {"status": "ok", "message": "Interacción registrada con éxito"}
 
-@app.post("/whatsapp")
-async def whatsapp_webhook(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    From: str = Form(...),       
-    NumMedia: int = Form(0),    
-    MediaUrl0: str = Form(None), 
-    MediaContentType0: str = Form(None), 
-    Body: str = Form("")        
-):
-    client_phone = From
 
+@app.post("/whatsapp")
+async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse(content={"status": "invalid json"}, status_code=400)
+
+    # Filtrar únicamente notificaciones de mensajes de texto u audio ENTRANTES
+    type_webhook = data.get("typeWebhook")
+    if type_webhook != "incomingMessageReceived":
+        return JSONResponse(content={"status": "ignored_webhook_type"}, status_code=200)
+
+    sender_data = data.get("senderData", {})
+    client_phone = sender_data.get("chatId") # Viene en formato: '573102476744@c.us'
+    
+    if not client_phone:
+        return JSONResponse(content={"status": "no_sender_id"}, status_code=200)
+
+    # Reconstrucción de la URL de Ngrok/Render si aplica
     host_header = request.headers.get("host", "")
     x_forwarded_host = request.headers.get("x-forwarded-host", "") or ""
     
@@ -148,6 +162,7 @@ async def whatsapp_webhook(
         env_url = os.getenv("NGROK_URL", "")
         ngrok_url = env_url if "tu-subdominio" not in env_url else f"http://{host_header}"
 
+    # Inicialización del estado en session_storage
     if client_phone not in session_storage:
         session_storage[client_phone] = {
             "client_phone": client_phone,
@@ -160,28 +175,39 @@ async def whatsapp_webhook(
 
     current_state = session_storage[client_phone]
     current_state["client_phone"] = client_phone
-    
-    # Procesamiento de audio o texto
-    if NumMedia > 0 and MediaUrl0 and "audio" in MediaContentType0:
-        local_filename = f"audio_{client_phone.replace(':', '_')}.ogg"
-        try:
-            auth = (os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
-            audio_data = requests.get(MediaUrl0, auth=auth)
-            with open(local_filename, "wb") as f:
-                f.write(audio_data.content)
-            transcription_text = audio_processor.transcribe_audio_file(local_filename)
-        except Exception as e:
-            transcription_text = Body
-        finally:
-            if os.path.exists(local_filename):
-                os.remove(local_filename)
-    else:
-        transcription_text = Body
 
+    # Extraer tipo de mensaje (Texto o Nota de Voz)
+    message_data = data.get("messageData", {})
+    type_message = message_data.get("typeMessage")
+    transcription_text = ""
+
+    # 1. Si es AUDIO / NOTA DE VOZ
+    if type_message in ["audioMessage", "voiceMessage"]:
+        file_url = message_data.get("fileMessageData", {}).get("downloadUrl")
+        if file_url:
+            local_filename = f"audio_{client_phone.replace('@c.us', '')}.ogg"
+            try:
+                # Green API entrega la URL de descarga directa sin credenciales
+                audio_res = requests.get(file_url, timeout=10)
+                with open(local_filename, "wb") as f:
+                    f.write(audio_res.content)
+                transcription_text = audio_processor.transcribe_audio_file(local_filename)
+            except Exception as e:
+                print(f"Error procesando audio: {e}")
+                transcription_text = ""
+            finally:
+                if os.path.exists(local_filename):
+                    os.remove(local_filename)
+
+    # 2. Si es TEXTO CONVENCIONAL
+    elif type_message in ["textMessage", "extendedTextMessage"]:
+        transcription_text = message_data.get("textMessageData", {}).get("textMessage", "")
+
+    # Validar si el texto está vacío
     if not transcription_text.strip():
-        safe_msg = escape("No logré entender el mensaje. ¿Podrías repetírmelo, por favor?")
-        xml_err = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{safe_msg}</Message></Response>'
-        return Response(content=xml_err, media_type="application/xml")
+        safe_msg = "No logré entender el mensaje. ¿Podrías repetírmelo, por favor?"
+        send_green_api_message(client_phone, safe_msg)
+        return JSONResponse(content={"status": "ok"}, status_code=200)
 
     current_state["last_transcription"] = transcription_text
 
@@ -196,7 +222,7 @@ async def whatsapp_webhook(
     
     session_storage[client_phone] = current_state
 
-# 1. Definir el texto a enviar según el estado del MVP
+    # Definir la respuesta según el estado del MVP
     if current_state["is_ready_for_mvp"]:
         text_to_send = (
             "⚙️ *CoreIA Factory:* ¡Excelente! He recopilado toda la información requerida.\n\n"
@@ -207,17 +233,7 @@ async def whatsapp_webhook(
     else:
         text_to_send = current_state["followup_question"] or "Cuéntame más detalles sobre tu idea."
 
-    # 2. Enviar el mensaje explícitamente usando la API REST de Twilio (garantiza entrega en producción)
-    try:
-        twilio_client.messages.create(
-            body=text_to_send,
-            from_=TWILIO_NUMBER,
-            to=client_phone
-        )
-        print(f"--- MENSAJE ENVIADO EXITOSAMENTE VÍA API A {client_phone} ---")
-    except Exception as err_msg:
-        print(f"❌ Error al enviar mensaje vía API: {err_msg}")
+    # Enviar mensaje de respuesta vía Green API
+    send_green_api_message(client_phone, text_to_send)
 
-    # 3. Retornar TwiML vacío a Twilio para confirmar la recepción HTTP 200 OK
-    empty_twiml = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
-    return Response(content=empty_twiml, media_type="application/xml")
+    return JSONResponse(content={"status": "ok"}, status_code=200)
