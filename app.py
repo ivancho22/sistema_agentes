@@ -17,8 +17,9 @@ audio_processor = AudioProcessor()
 
 # --- CREDENCIALES GREEN API ---
 GREEN_ID_INSTANCE = os.getenv("GREEN_ID_INSTANCE", "7105438396")
-GREEN_API_TOKEN = os.getenv("GREEN_API_TOKEN", "TU_TOKEN_AQUI")
-GREEN_API_URL = f"https://7105.api.greenapi.com/waInstance{GREEN_ID_INSTANCE}"
+GREEN_API_TOKEN = os.getenv("GREEN_API_TOKEN", "")
+# Usar el endpoint global estándar de Green API
+GREEN_API_URL = f"https://api.green-api.com/waInstance{GREEN_ID_INSTANCE}"
 
 class InteractionData(BaseModel):
     client_phone: str
@@ -200,9 +201,11 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
                     os.remove(local_filename)
 
     # 2. Si es TEXTO CONVENCIONAL
+    # 2. Si es TEXTO CONVENCIONAL
     elif type_message in ["textMessage", "extendedTextMessage"]:
-        transcription_text = message_data.get("textMessageData", {}).get("textMessage", "")
-
+        text_data = message_data.get("textMessageData", {}) or message_data.get("extendedTextMessageData", {})
+        transcription_text = text_data.get("textMessage", "") or text_data.get("text", "")
+        
     # Validar si el texto está vacío
     if not transcription_text.strip():
         safe_msg = "No logré entender el mensaje. ¿Podrías repetírmelo, por favor?"
