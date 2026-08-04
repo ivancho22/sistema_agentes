@@ -4,14 +4,18 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from state import AgentState
 
+def clean_phone_number(raw_phone: str) -> str:
+    """Helper unificado para limpiar el teléfono del cliente."""
+    return str(raw_phone).replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "").replace("@s.whatsapp.net", "").strip()
+
 def run_designer_agent(state: AgentState) -> dict:
     print("--- INICIANDO AGENTE DISEÑADOR UX/UI INTERACTIVO AVANZADO ---")
     info = state.get("extracted_info", {})
     chat_history = state.get("chat_history", [])
     
-    # 💡 1. Obtención del teléfono/ID del cliente
+    # 💡 1. Obtención y limpieza unificada del teléfono/ID del cliente
     client_phone = state.get("client_phone") or info.get("client_phone") or "demo_user"
-    clean_phone = str(client_phone).replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "").strip()
+    clean_phone = clean_phone_number(client_phone)
 
     # Requerimientos provenientes del estado del grafo
     analyst_requirements = state.get("analyst_doc", "No especificado")
@@ -27,14 +31,13 @@ def run_designer_agent(state: AgentState) -> dict:
     target = info.get('target_audience', 'Usuarios Generales')
 
     human_context = (
-        f"Teléfono del Cliente: {client_phone}\n"
+        f"Teléfono del Cliente: {clean_phone}\n"
         f"PROYECTO EXCLUSIVO A DIBUJAR: {core_feat}\n"
         f"Plataforma: {plat}\n"
         f"Público Objetivo: {target}\n\n"
         f"--- ESPECIFICACIÓN TÉCNICA Y REGLAS DE NEGOCIO DEL PROYECTO ---\n{analyst_requirements}"
     )
     
-    # Construcción segura sin triples comillas f"""
     system_prompt_text = (
         "Eres el Director de Diseño Frontend y UX/UI Senior de CoreIA.\n"
         f"Tu único objetivo es generar un prototipo web HTML/CSS/JS de nivel producción adaptado EXCLUSIVAMENTE a la siguiente idea: '{core_feat}'.\n\n"
@@ -52,7 +55,7 @@ def run_designer_agent(state: AgentState) -> dict:
         "   - Usa modo oscuro elegante sobre Slate-900 con tarjetas en Glassmorphism (bg-slate-800/80, border border-slate-700, rounded-2xl, shadow-2xl).\n"
         f"   - Muestra un formulario, catálogo o panel interactivo adecuado para la lógica de '{core_feat}'.\n\n"
         "4. INTERACTIVIDAD REAL (JS):\n"
-        "   - Incluye una función JavaScript que procese las interacciones del formulario/pantalla y envíe la petición POST al backend usando fetch a '/api/confirmar_interaccion' enviando JSON con 'client_phone', 'service_details' y 'total_amount'.\n"
+        f"   - Incluye una función JavaScript que procese las interacciones y envíe un fetch POST a '/api/confirmar_interaccion' con JSON enviando 'client_phone': '{clean_phone}', 'service_details' y 'total_amount'.\n"
         "   - Al hacer clic en el botón principal, muestra un modal flotante moderno de confirmación de éxito.\n\n"
         "### REGLA DE FORMATO:\n"
         "Devuelve ÚNICAMENTE el código HTML puro desde <!DOCTYPE html> hasta </html>. Nada de texto explicativo fuera del código."
@@ -71,10 +74,10 @@ def run_designer_agent(state: AgentState) -> dict:
     html_match = re.search(r'(<!DOCTYPE html>.*?</html>|<html.*?</html>)', raw_content, re.DOTALL | re.IGNORECASE)
     html_code = html_match.group(1).strip() if html_match else raw_content.replace("```html", "").replace("```", "").strip()
     
-    # Inyección del teléfono real del cliente
-    html_code = html_code.replace("CLIENT_PHONE_PLACEHOLDER", str(client_phone))
+    # Inyección directa por si acaso la LLM dejó el placeholder
+    html_code = html_code.replace("CLIENT_PHONE_PLACEHOLDER", str(clean_phone))
 
-    # Guardado en la carpeta específica del cliente
+    # Guardado en la carpeta del cliente
     client_dir = os.path.join("prototipos", clean_phone)
     os.makedirs(client_dir, exist_ok=True)
     
@@ -89,7 +92,7 @@ def run_designer_agent(state: AgentState) -> dict:
     with open(output_filepath, "w", encoding="utf-8") as f:
         f.write(html_code)
         
-    print(f"--- PROTOTIPO ÚNICO GUARDADO EN: {output_filepath} ---")
+    print(f"✅ [DESIGNER] PROTOTIPO GUARDADO EXITOSAMENTE EN: {os.path.abspath(output_filepath)}")
     
     commercial_content = (
         f"🎨 **Prototipo Personalizado:** Se ha diseñado la interfaz interactiva para el módulo de *{core_feat}*."

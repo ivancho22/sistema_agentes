@@ -59,7 +59,15 @@ def send_green_api_message(chat_id: str, text: str):
 
 def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url: str):
     try:
-        print(f"--- INICIANDO GRAFO DE FACTORÍA PARA {client_phone} ---")
+        clean_phone = clean_phone_number(client_phone)
+        
+        # 💡 Aseguramos que el teléfono esté disponible en todos los niveles del estado
+        current_state["client_phone"] = client_phone
+        if "extracted_info" not in current_state or not isinstance(current_state["extracted_info"], dict):
+            current_state["extracted_info"] = {}
+        current_state["extracted_info"]["client_phone"] = client_phone
+
+        print(f"--- INICIANDO GRAFO DE FACTORÍA PARA {clean_phone} ---")
         
         # 1. Ejecutar el grafo con los 5 agentes
         updated_state = app_graph.invoke(current_state)
