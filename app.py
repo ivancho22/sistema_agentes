@@ -5,6 +5,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from dotenv import load_dotenv
 from pydantic import BaseModel
+from agents.discovery import run_discovery_agent
 
 from lead_manager import save_lead
 from audio_handler import AudioProcessor
@@ -240,33 +241,34 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     if discovery_result.get("lead_status") == "NUEVA_CONSULTA":
         print("🔄 DETECTADO NUEVO PROYECTO: Limpiando memoria de la sesión...")
         current_state["extracted_info"] = discovery_result["extracted_info"]
-        current_state["chat_history"] = [] # Reiniciar historial para el nuevo proyecto
+        current_state["chat_history"] = [] # Reiniciar historial
+        current_state["lead_status"] = "EN_CONSULTA"
+        current_state["is_interested"] = False
     else:
         current_state["extracted_info"] = discovery_result["extracted_info"]
         current_state["chat_history"] = discovery_result["chat_history"]
+        current_state["lead_status"] = discovery_result["lead_status"]
 
     current_state["is_ready_for_mvp"] = discovery_result["is_ready_for_mvp"]
     current_state["followup_question"] = discovery_result["followup_question"]
     current_state["is_interested"] = discovery_result["is_interested"]
-    current_state["lead_status"] = discovery_result["lead_status"]
     
     session_storage[client_phone] = current_state
 
-    # 💡 GUARDADO AUTOMÁTICO EN SUPABASE
+    # 💡 Guardar en Supabase en cada interacción
     save_lead(client_phone, current_state)
 
-    # 💡 CONTROL ANTI-REPETICIÓN: Verificar si el prototipo ya se generó o se está contratando
+    # 💡 CONTROL DE FACTORÍA: Solo bloquear si el estado ACTUAL de esta misma consulta ya entregó prototipo
     current_status = current_state.get("lead_status", "")
-    already_generated = current_status in [
+    prototype_already_generated = current_status in [
         "PROTOTIPO_ENTREGADO", 
         "PROTOTIPO_Y_OFERTA_ENTREGADOS", 
         "LISTO_PARA_CONTRATAR", 
-        "CONTRATADO",
-        "DESESTIMADO_O_CERRADO"
+        "CONTRATADO"
     ]
 
-    # Definir la respuesta según el estado sin repetir la factoría
-    if current_state.get("is_ready_for_mvp") and not already_generated:
+    # Si está listo para MVP y aún no hemos lanzado la factoría para esta nueva consulta:
+    if current_state.get("is_ready_for_mvp") and not prototype_already_generated:
         text_to_send = (
             "⚙️ *CoreIA Factory:* ¡Excelente! He recopilado toda la información requerida.\n\n"
             "🧠 *Activando factoría técnica de software...*\n\n"
@@ -274,7 +276,7 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
         )
         background_tasks.add_task(run_agent_factory_in_background, current_state, client_phone, ngrok_url)
     else:
-        text_to_send = current_state.get("followup_question") or "¡Me alegra que estés a gusto! ¿Cuándo te gustaría agendar la reunión para formalizar tu software?"
+        text_to_send = current_state.get("followup_question") or "¡Excelente! ¿Te gustaría que agendemos una reunión para revisar los detalles?"
 
     send_green_api_message(client_phone, text_to_send)
 
