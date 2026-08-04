@@ -14,7 +14,7 @@ def run_designer_agent(state: AgentState) -> dict:
     clean_phone = client_phone.replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "").strip()
 
     # Carga del plano de ingeniería del analista
-    analyst_requirements = "No especificado"
+    analyst_requirements = state.get("analyst_doc") or "No especificado"
     if os.path.exists("REQUERIMIENTOS_MVP.md"):
         try:
             with open("REQUERIMIENTOS_MVP.md", "r", encoding="utf-8") as f:
