@@ -43,14 +43,14 @@ def save_lead(client_id: str, state: dict, custom_status: str = None):
     except Exception as err:
         print(f"❌ Error al guardar en JSON local: {err}")
 
-    # 2. Persistir en Supabase (si está configurado)
+    # 2. Sincronizar en Supabase (Esquema Public)
     if supabase:
         try:
-            # Usamos upsert para insertar o actualizar según el client_id
-            response = supabase.table("leads_coreia").upsert(
+            # Especificar el esquema public
+            supabase.schema("public").table("leads_coreia").upsert(
                 lead_data, 
                 on_conflict="client_id"
             ).execute()
-            print(f"☁️ [SUPABASE] Lead '{client_id}' sincronizado con éxito.")
+            print(f"☁️ [SUPABASE] Lead '{client_id}' sincronizado exitosamente.")
         except Exception as e:
-            print(f"❌ [SUPABASE ERROR] No se pudo guardar el lead: {e}")
+            print(f"❌ [SUPABASE ERROR]: {e}")
