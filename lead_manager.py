@@ -34,26 +34,29 @@ def save_lead(client_phone: str, state_data: dict, custom_status: str = None):
     es_cliente_interesado = is_interested or (lead_status in ["LISTO_PARA_CONTRATAR", "CONTRATADO", "PROTOTIPO_ENTREGADO"])
 
     raw_history = state_data.get("chat_history", [])
-    try:
-        history_str = json.dumps(raw_history, ensure_ascii=False)
-    except Exception:
-        history_str = str(raw_history)
 
-    # Payload adaptado 100% a las columnas de la tabla public.leads_coreia
+    # Detalle rico guardado dentro de informacion_extraida (JSONB)
+    info_jsonb = {
+        "datos_extraidos": extracted,
+        "historial_chat": raw_history,
+        "pregunta_seguimiento": state_data.get("followup_question", "")
+    }
+
+    # Payload adaptado 100% a la nueva tabla limpia
     payload = {
         "client_id": clean_phone,
-        "fecha_ultima_act": datetime.now(timezone.utc).isoformat(),
+        "fecha_ultima_actividad": datetime.now(timezone.utc).isoformat(),
         "estado_lead": str(lead_status),
-        "es_cliente_intere": bool(es_cliente_interesado),
-        "informacion_extr": extracted, # Guarda en JSONB la fecha de cita, hora, módulos y detalles del MVP
-        "propuesta_come": str(state_data.get("commercial_proposal", "")),
+        "es_cliente_interesado": bool(es_cliente_interesado),
+        "informacion_extraida": info_jsonb,
+        "propuesta_comercial": str(state_data.get("commercial_proposal", "")),
         "ruta_prototipo": f"/prototipo/{clean_phone}",
-        "historial_mensaje": history_str
+        "historial_mensajes_count": len(raw_history)
     }
 
     try:
         res = supabase.table("leads_coreia").upsert(payload, on_conflict="client_id").execute()
-        print(f"✅ [SUPABASE SUCCESS] LEAD GUARDADO/ACTUALIZADO: {clean_phone} | Estado: {lead_status}")
+        print(f"✅ [SUPABASE SUCCESS] LEAD GUARDADO/ACTUALIZADO PARA {clean_phone} | Estado: {lead_status}")
         return True
     except Exception as e:
         print(f"❌ [SUPABASE ERROR GRAVE]: {e}")
