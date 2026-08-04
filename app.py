@@ -105,21 +105,31 @@ def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url:
         err_msg = f"⚠️ Ocurrió un inconveniente al generar tu prototipo: {str(e)[:100]}. Por favor, intenta enviando un nuevo mensaje."
         send_green_api_message(client_phone, err_msg)
 
-@app.get("/prototipo/{clean_phone}", response_class=HTMLResponse)
-async def serve_prototype(clean_phone: str):
+# En app.py
+from fastapi.responses import HTMLResponse
+
+@app.get("/prototipo/{client_phone}", response_class=HTMLResponse)
+async def serve_prototype(client_phone: str):
+    # Normalizamos el teléfono para que coincida exactamente con la carpeta
+    clean_phone = client_phone.replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "").strip()
+    
     file_path = os.path.join("prototipos", clean_phone, "index.html")
+    
+    print(f"🔍 Buscando prototipo en: {file_path}")
+    
     if os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
         
-        # Desactivar caché explícitamente
         response = HTMLResponse(content=content)
+        # Encabezados anti-caché obligatorios
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         return response
     else:
-        return HTMLResponse(content="<h1>Prototipo no encontrado</h1>", status_code=404)
+        print(f"❌ No se encontró el archivo en: {file_path}")
+        return HTMLResponse(content=f"<h1>Prototipo no encontrado para ID: {clean_phone}</h1>", status_code=404)
 
 @app.get("/prototipo/{client_phone}", response_class=HTMLResponse)
 async def ver_prototipo_cliente(client_phone: str):
