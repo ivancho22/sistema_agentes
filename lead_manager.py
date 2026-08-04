@@ -35,14 +35,12 @@ def save_lead(client_phone: str, state_data: dict, custom_status: str = None):
 
     raw_history = state_data.get("chat_history", [])
 
-    # Detalle rico guardado dentro de informacion_extraida (JSONB)
     info_jsonb = {
         "datos_extraidos": extracted,
         "historial_chat": raw_history,
         "pregunta_seguimiento": state_data.get("followup_question", "")
     }
 
-    # Payload adaptado 100% a la nueva tabla limpia
     payload = {
         "client_id": clean_phone,
         "fecha_ultima_actividad": datetime.now(timezone.utc).isoformat(),
@@ -59,6 +57,6 @@ def save_lead(client_phone: str, state_data: dict, custom_status: str = None):
         print(f"✅ [SUPABASE SUCCESS] LEAD GUARDADO/ACTUALIZADO PARA {clean_phone} | Estado: {lead_status}")
         return True
     except Exception as e:
-        print(f"❌ [SUPABASE ERROR GRAVE]: {e}")
+        print(f"❌ [SUPABASE ERROR GRAVE DETALLADO]: {e}")
         print(traceback.format_exc())
         return False
