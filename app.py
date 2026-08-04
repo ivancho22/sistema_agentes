@@ -252,11 +252,21 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     
     session_storage[client_phone] = current_state
 
-    # 💡 AJUSTE CLAVE AQUÍ: Guardamos en Supabase el estado de la consulta en CADA MENSAJE
+    # 💡 GUARDADO AUTOMÁTICO EN SUPABASE
     save_lead(client_phone, current_state)
 
-    # Definir la respuesta según el estado
-    if current_state["is_ready_for_mvp"]:
+    # 💡 CONTROL ANTI-REPETICIÓN: Verificar si el prototipo ya se generó o se está contratando
+    current_status = current_state.get("lead_status", "")
+    already_generated = current_status in [
+        "PROTOTIPO_ENTREGADO", 
+        "PROTOTIPO_Y_OFERTA_ENTREGADOS", 
+        "LISTO_PARA_CONTRATAR", 
+        "CONTRATADO",
+        "DESESTIMADO_O_CERRADO"
+    ]
+
+    # Definir la respuesta según el estado sin repetir la factoría
+    if current_state.get("is_ready_for_mvp") and not already_generated:
         text_to_send = (
             "⚙️ *CoreIA Factory:* ¡Excelente! He recopilado toda la información requerida.\n\n"
             "🧠 *Activando factoría técnica de software...*\n\n"
@@ -264,7 +274,7 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
         )
         background_tasks.add_task(run_agent_factory_in_background, current_state, client_phone, ngrok_url)
     else:
-        text_to_send = current_state["followup_question"] or "Cuéntame más detalles sobre tu idea."
+        text_to_send = current_state.get("followup_question") or "¡Me alegra que estés a gusto! ¿Cuándo te gustaría agendar la reunión para formalizar tu software?"
 
     send_green_api_message(client_phone, text_to_send)
 
