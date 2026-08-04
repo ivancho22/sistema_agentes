@@ -1,6 +1,7 @@
 import os
 import json
-from datetime import datetime
+import traceback
+from datetime import datetime, timezone
 from supabase import create_client, Client
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -15,14 +16,11 @@ if SUPABASE_URL and SUPABASE_KEY:
     except Exception as e:
         print(f"❌ [SUPABASE] Error de conexión inicial: {e}")
 else:
-    print("⚠️ [SUPABASE] Faltan las variables NGROK_URL, SUPABASE_URL o SUPABASE_KEY en Render.")
+    print("⚠️ [SUPABASE] Faltan SUPABASE_URL o SUPABASE_KEY en las variables de entorno de Render.")
 
 def save_lead(client_phone: str, state_data: dict, custom_status: str = None):
-    """
-    Guarda o actualiza el registro del lead en Supabase en CADA interacción.
-    """
     if not supabase:
-        print("❌ [SUPABASE] Operación cancelada: El cliente de Supabase no está configurado.")
+        print("❌ [SUPABASE] Operación cancelada: Cliente no inicializado.")
         return False
 
     clean_phone = str(client_phone).replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "").replace("@s.whatsapp.net", "").strip()
@@ -31,33 +29,32 @@ def save_lead(client_phone: str, state_data: dict, custom_status: str = None):
     lead_status = custom_status or state_data.get("lead_status", "EN_CONSULTA")
     is_interested = state_data.get("is_interested", False)
     
-    # Campo booleano de contratación
-    es_cliente_contratado = is_interested or (lead_status in ["LISTO_PARA_CONTRATAR", "CONTRATADO", "PROTOTIPO_ENTREGADO"])
+    es_cliente_interesado = is_interested or (lead_status in ["LISTO_PARA_CONTRATAR", "CONTRATADO", "PROTOTIPO_ENTREGADO"])
 
-    # Serializar historial de chat a String JSON seguro
     raw_history = state_data.get("chat_history", [])
     try:
-        history_json = json.dumps(raw_history, ensure_ascii=False)
+        history_str = json.dumps(raw_history, ensure_ascii=False)
     except Exception:
-        history_json = str(raw_history)
+        history_str = str(raw_history)
 
+    # 💡 MAPEO EXACTO DE COLUMNAS SEGÚN TU TABLA LEADS_COREIA
     payload = {
         "client_id": clean_phone,
-        "fecha_ultima_actividad": datetime.utcnow().isoformat(),
+        "fecha_ultima_act": datetime.now(timezone.utc).isoformat(),
         "estado_lead": str(lead_status),
-        "idea_proyecto": str(extracted.get("core_feature", "No especificado")),
-        "plataforma": str(extracted.get("platform", "Web")),
-        "publico_objetivo": str(extracted.get("target_audience", "General")),
-        "es_cliente_contratado": bool(es_cliente_contratado),
-        "historial_chat": history_json,
-        "propuesta_comercial": str(state_data.get("commercial_proposal", ""))
+        "es_cliente_intere": bool(es_cliente_interesado),
+        "informacion_extr": extracted, # Se guarda como JSONB (incluye idea, fecha_cita, hora_cita, etc.)
+        "propuesta_come": str(state_data.get("commercial_proposal", "")),
+        "ruta_prototipo": f"/prototipo/{clean_phone}",
+        "historial_mensaje": history_str # Asegúrate de cambiar esta columna a tipo text en Supabase
     }
 
     try:
-        # Intenta hacer un upsert basado en client_id
-        response = supabase.table("leads_coreia").upsert(payload, on_conflict="client_id").execute()
-        print(f"✅ [SUPABASE SUCCESS] LEAD REGISTRADO/ACTUALIZADO PARA {clean_phone} | Estado: {lead_status}")
+        # Intenta hacer un upsert basado en client_id (si ya existe client_id lo actualiza, si no lo crea)
+        res = supabase.table("leads_coreia").upsert(payload, on_conflict="client_id").execute()
+        print(f"✅ [SUPABASE SUCCESS] LEAD GUARDADO/ACTUALIZADO: {clean_phone} | Estado: {lead_status}")
         return True
     except Exception as e:
-        print(f"❌ [SUPABASE ERROR DETALLADO]: {e}")
+        print(f"❌ [SUPABASE ERROR GRAVE]: {e}")
+        print(traceback.format_exc())
         return False
