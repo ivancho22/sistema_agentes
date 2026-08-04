@@ -1,19 +1,15 @@
 import os
 import requests
+import time
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from dotenv import load_dotenv
-import time
-from lead_manager import save_lead
-from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
-# Importaciones de tu Grafo y Módulos
+from lead_manager import save_lead
 from audio_handler import AudioProcessor
 from graph import app_graph
-from lead_manager import save_lead
-from lead_manager import save_lead
 from state import MVPInformation
-from pydantic import BaseModel
 
 load_dotenv()
 
@@ -23,7 +19,6 @@ audio_processor = AudioProcessor()
 # --- CREDENCIALES GREEN API ---
 GREEN_ID_INSTANCE = os.getenv("GREEN_ID_INSTANCE", "7105438396")
 GREEN_API_TOKEN = os.getenv("GREEN_API_TOKEN", "")
-# Usar el endpoint global estándar de Green API
 GREEN_API_URL = f"https://api.green-api.com/waInstance{GREEN_ID_INSTANCE}"
 
 class InteractionData(BaseModel):
@@ -33,20 +28,20 @@ class InteractionData(BaseModel):
     
 session_storage = {}
 
+def clean_phone_number(raw_phone: str) -> str:
+    """Helper único para estandarizar el teléfono en todo el sistema."""
+    return str(raw_phone).replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "").strip()
+
 # --- FUNCIÓN HELPER PARA ENVIAR MENSAJES VÍA GREEN API ---
 def send_green_api_message(chat_id: str, text: str):
-    """
-    Envía un mensaje de texto por WhatsApp usando Green API.
-    `chat_id` debe venir en formato internacional, ej: '573102476744@c.us'
-    """
     try:
-        time.sleep(2.5)
+        time.sleep(2.0)
         url = f"{GREEN_API_URL}/sendMessage/{GREEN_API_TOKEN}"
         
-        # Asegurar formato correcto de chatId
+        # Asegurar formato correcto de chatId para Green API
         if not chat_id.endswith("@c.us"):
-            clean_number = chat_id.replace("whatsapp:", "").replace("+", "").replace(":", "").strip()
-            chat_id = f"{clean_number}@c.us"
+            clean_num = clean_phone_number(chat_id)
+            chat_id = f"{clean_num}@c.us"
 
         payload = {
             "chatId": chat_id,
@@ -71,7 +66,7 @@ def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url:
         session_storage[client_phone] = updated_state
         
         proposal = updated_state.get("commercial_proposal", "")
-        clean_phone = client_phone.replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "").strip()
+        clean_phone = clean_phone_number(client_phone)
         
         # 2. Construir la URL del prototipo
         host_url = os.getenv("RENDER_EXTERNAL_URL", "https://coreia-factory.onrender.com")
@@ -105,14 +100,11 @@ def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url:
         err_msg = f"⚠️ Ocurrió un inconveniente al generar tu prototipo: {str(e)[:100]}. Por favor, intenta enviando un nuevo mensaje."
         send_green_api_message(client_phone, err_msg)
 
-# En app.py
-from fastapi.responses import HTMLResponse
 
+# --- UNIFICACIÓN ÚNICA DEL ENDPOINT DE PROTOTIPOS ---
 @app.get("/prototipo/{client_phone}", response_class=HTMLResponse)
 async def serve_prototype(client_phone: str):
-    # Normalizamos el teléfono para que coincida exactamente con la carpeta
-    clean_phone = client_phone.replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "").strip()
-    
+    clean_phone = clean_phone_number(client_phone)
     file_path = os.path.join("prototipos", clean_phone, "index.html")
     
     print(f"🔍 Buscando prototipo en: {file_path}")
@@ -122,29 +114,17 @@ async def serve_prototype(client_phone: str):
             content = f.read()
         
         response = HTMLResponse(content=content)
-        # Encabezados anti-caché obligatorios
+        # Encabezados anti-caché estrictos
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         return response
     else:
         print(f"❌ No se encontró el archivo en: {file_path}")
-        return HTMLResponse(content=f"<h1>Prototipo no encontrado para ID: {clean_phone}</h1>", status_code=404)
-
-@app.get("/prototipo/{client_phone}", response_class=HTMLResponse)
-async def ver_prototipo_cliente(client_phone: str):
-    clean_phone = client_phone.replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "").strip()
-    possible_paths = [
-        os.path.join("prototipos", client_phone, "index.html"),
-        os.path.join("prototipos", f"whatsapp_{clean_phone}", "index.html"),
-        os.path.join("prototipos", clean_phone, "index.html"),
-        os.path.join("prototipos", "demo_user", "index.html")
-    ]
-    for path in possible_paths:
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                return f.read()
-    return f"<h3>El prototipo para {client_phone} aún se está compilando en la factoría CoreIA. Por favor, recarga en unos segundos.</h3>"
+        return HTMLResponse(
+            content=f"<h3>El prototipo para {clean_phone} aún se está compilando o no existe. Por favor, recarga en unos segundos.</h3>",
+            status_code=404
+        )
 
 
 @app.get("/prototipo", response_class=HTMLResponse)
@@ -186,7 +166,6 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     if not client_phone:
         return JSONResponse(content={"status": "no_sender_id"}, status_code=200)
 
-    # Reconstrucción de la URL de Ngrok/Render si aplica
     host_header = request.headers.get("host", "")
     x_forwarded_host = request.headers.get("x-forwarded-host", "") or ""
     
@@ -198,7 +177,7 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
         env_url = os.getenv("NGROK_URL", "")
         ngrok_url = env_url if "tu-subdominio" not in env_url else f"http://{host_header}"
 
-    # Inicialización del estado en session_storage
+    # Inicialización limpia del estado en session_storage
     if client_phone not in session_storage:
         session_storage[client_phone] = {
             "client_phone": client_phone,
@@ -212,18 +191,17 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     current_state = session_storage[client_phone]
     current_state["client_phone"] = client_phone
 
-    # Extraer tipo de mensaje (Texto o Nota de Voz)
+    # Extraer tipo de mensaje
     message_data = data.get("messageData", {})
     type_message = message_data.get("typeMessage")
     transcription_text = ""
 
-    # 1. Si es AUDIO / NOTA DE VOZ
+    # 1. Si es AUDIO
     if type_message in ["audioMessage", "voiceMessage"]:
         file_url = message_data.get("fileMessageData", {}).get("downloadUrl")
         if file_url:
-            local_filename = f"audio_{client_phone.replace('@c.us', '')}.ogg"
+            local_filename = f"audio_{clean_phone_number(client_phone)}.ogg"
             try:
-                # Green API entrega la URL de descarga directa sin credenciales
                 audio_res = requests.get(file_url, timeout=10)
                 with open(local_filename, "wb") as f:
                     f.write(audio_res.content)
@@ -235,12 +213,11 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
                 if os.path.exists(local_filename):
                     os.remove(local_filename)
 
-        # 2. Si es TEXTO CONVENCIONAL
+    # 2. Si es TEXTO
     elif type_message in ["textMessage", "extendedTextMessage"]:
         text_data = message_data.get("textMessageData", {}) or message_data.get("extendedTextMessageData", {})
         transcription_text = text_data.get("textMessage", "") or text_data.get("text", "")
         
-    # Validar si el texto está vacío
     if not transcription_text.strip():
         safe_msg = "No logré entender el mensaje. ¿Podrías repetírmelo, por favor?"
         send_green_api_message(client_phone, safe_msg)
@@ -252,16 +229,23 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     from agents.discovery import run_discovery_agent
     discovery_result = run_discovery_agent(current_state)
     
-    current_state["extracted_info"] = discovery_result["extracted_info"]
+    # 💡 RESET SI CAMBIA DE IDEA: Si discovery detecta una NUEVA_CONSULTA, limpiamos la info vieja
+    if discovery_result.get("lead_status") == "NUEVA_CONSULTA":
+        print("🔄 DETECTADO NUEVO PROYECTO: Limpiando memoria de la sesión...")
+        current_state["extracted_info"] = discovery_result["extracted_info"]
+        current_state["chat_history"] = [] # Reiniciar historial para el nuevo proyecto
+    else:
+        current_state["extracted_info"] = discovery_result["extracted_info"]
+        current_state["chat_history"] = discovery_result["chat_history"]
+
     current_state["is_ready_for_mvp"] = discovery_result["is_ready_for_mvp"]
     current_state["followup_question"] = discovery_result["followup_question"]
     current_state["is_interested"] = discovery_result["is_interested"]
-    current_state["chat_history"] = discovery_result["chat_history"]
     current_state["lead_status"] = discovery_result["lead_status"]
     
     session_storage[client_phone] = current_state
 
-    # Definir la respuesta según el estado del MVP
+    # Definir la respuesta según el estado
     if current_state["is_ready_for_mvp"]:
         text_to_send = (
             "⚙️ *CoreIA Factory:* ¡Excelente! He recopilado toda la información requerida.\n\n"
@@ -272,7 +256,6 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     else:
         text_to_send = current_state["followup_question"] or "Cuéntame más detalles sobre tu idea."
 
-    # Enviar mensaje de respuesta vía Green API
     send_green_api_message(client_phone, text_to_send)
 
     return JSONResponse(content={"status": "ok"}, status_code=200)

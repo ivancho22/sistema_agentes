@@ -11,9 +11,11 @@ def run_discovery_agent(state: AgentState) -> dict:
     current_info = state.get("extracted_info", {})
     chat_history = state.get("chat_history", [])
 
+    # Forzamos response_format a json_object para prevenir fallos de lectura
     llm = ChatOpenAI(
         model="gpt-4o-mini",
-        temperature=0.3,
+        temperature=0.2,
+        model_kwargs={"response_format": {"type": "json_object"}},
         openai_api_key=os.getenv("OPENAI_API_KEY")
     )
 
@@ -34,7 +36,7 @@ def run_discovery_agent(state: AgentState) -> dict:
 
             "5. CAMBIO RADICAL DE IDEA / NUEVO PROYECTO (RESET DE MEMORIA):\n"
             "   - Si el cliente solicita un proyecto TOTALMENTE DIFERENTE al anterior (ej: antes pedía peluquería y ahora dice 'quiero un CRM para inmobiliarias' o 'diseña un dashboard de energía solar'):\n"
-            "     SOBRESCRIBE por completo 'core_feature' con la nueva idea (NO combines las ideas anteriores), resetea 'is_ready_for_mvp': false para indagar requerimientos iniciales, asigna 'lead_status': 'NUEVA_CONSULTA' y pregúntale los detalles de esta nueva aplicación.\n\n"
+            "     SOBRESCRIBE por completo 'core_feature' con la nueva idea (NO combines ni conserves las ideas anteriores), resetea 'is_ready_for_mvp': false para indagar requerimientos iniciales, asigna 'lead_status': 'NUEVA_CONSULTA' y pregúntale los detalles de esta nueva aplicación.\n\n"
 
             "6. INTENCIÓN COMERCIAL DE COMPRA:\n"
             "   - Si el cliente muestra INTENCIÓN DE CONTRATAR o AVANZAR ('me gusta el diseño', 'quiero contratar', 'cuándo empezamos', 'cómo pagamos'):\n"
@@ -79,15 +81,24 @@ def run_discovery_agent(state: AgentState) -> dict:
         cleaned_response = response.content.strip().replace("```json", "").replace("```", "").strip()
         parsed_data = json.loads(cleaned_response)
         
-        extracted_info = {
-            "core_feature": parsed_data.get("core_feature") or current_info.get("core_feature", ""),
-            "platform": parsed_data.get("platform") or current_info.get("platform", ""),
-            "target_audience": parsed_data.get("target_audience") or current_info.get("target_audience", "")
-        }
+        lead_status = parsed_data.get("lead_status", "EN_CONSULTA")
+        
+        # Si es un NUEVO PROYECTO, no usamos fallback a current_info
+        if lead_status == "NUEVA_CONSULTA":
+            extracted_info = {
+                "core_feature": parsed_data.get("core_feature", ""),
+                "platform": parsed_data.get("platform", "Web"),
+                "target_audience": parsed_data.get("target_audience", "General")
+            }
+        else:
+            extracted_info = {
+                "core_feature": parsed_data.get("core_feature") or current_info.get("core_feature", ""),
+                "platform": parsed_data.get("platform") or current_info.get("platform", ""),
+                "target_audience": parsed_data.get("target_audience") or current_info.get("target_audience", "")
+            }
         
         is_ready = parsed_data.get("is_ready_for_mvp", False)
         is_interested = parsed_data.get("is_interested", False)
-        lead_status = parsed_data.get("lead_status", "EN_CONSULTA")
         followup = parsed_data.get("followup_question", "¡Hola! Bienvenido a CoreIA. ¿Qué idea de software te gustaría construir?")
 
     except Exception as e:
