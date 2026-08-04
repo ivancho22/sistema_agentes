@@ -40,7 +40,7 @@ def run_designer_agent(state: AgentState) -> dict:
         f"--- PLANO TÉCNICO COMPLETO Y REGLAS DE NEGOCIO ---\n{analyst_requirements}"
     )
     
-    # Usamos f-string limpia con llaves dobles {{ }} en el JS para que LangChain no marque error de sintaxis
+    # Prompt con llaves dobles {{ }} en bloques de JS/CSS para prevenir errores de parsing en LangChain
     system_prompt_text = f"""Eres el Director de Diseño Frontend y UX/UI Senior de CoreIA.
 Tu único objetivo es generar un prototipo web HTML/CSS/JS de nivel producción (estilo SaaS Premium / Dashboard Moderno).
 

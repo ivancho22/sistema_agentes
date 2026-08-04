@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from dotenv import load_dotenv
 import time
 from lead_manager import save_lead
+from fastapi.responses import HTMLResponse
 
 # Importaciones de tu Grafo y Módulos
 from audio_handler import AudioProcessor
@@ -104,6 +105,21 @@ def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url:
         err_msg = f"⚠️ Ocurrió un inconveniente al generar tu prototipo: {str(e)[:100]}. Por favor, intenta enviando un nuevo mensaje."
         send_green_api_message(client_phone, err_msg)
 
+@app.get("/prototipo/{clean_phone}", response_class=HTMLResponse)
+async def serve_prototype(clean_phone: str):
+    file_path = os.path.join("prototipos", clean_phone, "index.html")
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        # Desactivar caché explícitamente
+        response = HTMLResponse(content=content)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+    else:
+        return HTMLResponse(content="<h1>Prototipo no encontrado</h1>", status_code=404)
 
 @app.get("/prototipo/{client_phone}", response_class=HTMLResponse)
 async def ver_prototipo_cliente(client_phone: str):
