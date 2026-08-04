@@ -1,6 +1,17 @@
+# Entornos virtuales
 venv/
+.venv/
+env/
+# Variables de entorno y llaves de API
 .env
+# Caché de Python
 __pycache__/
 *.pyc
-prototipos/
+# Archivos de persistencia local y datos de clientes
+leads_capturados.json
+*.db
+*.sqlite3
+# Prototipos generados localmente (opcional, si no quieres subir las demos locales)
+prototipos/*
+!prototipos/.gitkeep
 audio_*.ogg

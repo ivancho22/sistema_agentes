@@ -4,10 +4,13 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from dotenv import load_dotenv
 import time
+from lead_manager import save_lead
 
 # Importaciones de tu Grafo y Módulos
 from audio_handler import AudioProcessor
 from graph import app_graph
+from lead_manager import save_lead
+from lead_manager import save_lead
 from state import MVPInformation
 from pydantic import BaseModel
 
@@ -61,28 +64,32 @@ def send_green_api_message(chat_id: str, text: str):
 def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url: str):
     try:
         print(f"--- INICIANDO GRAFO DE FACTORÍA PARA {client_phone} ---")
+        
+        # 1. Ejecutar el grafo con los 5 agentes
         updated_state = app_graph.invoke(current_state)
         session_storage[client_phone] = updated_state
-        info = updated_state.get("extracted_info", {})
+        
         proposal = updated_state.get("commercial_proposal", "")
+        clean_phone = client_phone.replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "").strip()
         
-        clean_phone = client_phone.replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "")
-        
-        # Construir la URL del prototipo alojado en Render
+        # 2. Construir la URL del prototipo
         host_url = os.getenv("RENDER_EXTERNAL_URL", "https://coreia-factory.onrender.com")
         link_prototipo = f"{host_url}/prototipo/{clean_phone}"
         
-        # 1. MENSAJE 1: Enlace al Prototipo Interactivo
-        summary = (
-            f"🚀 *¡Tu prototipo interactivo está listo!* 🚀\n\n"
-            f"🎨 *Prueba la aplicación aquí:*\n"
-            f"🔗 {link_prototipo}\n"
-        )
+        # 3. Guardar el Lead con la información del prototipo recién generado
+        updated_state["lead_status"] = "PROTOTIPO_Y_OFERTA_ENTREGADOS"
+        save_lead(client_phone, updated_state, custom_status="PROTOTIPO_ENTREGADO")
 
+        # 4. MENSAJE 1: Notificación del Prototipo + Pregunta de Cierre
+        summary = (
+            f"🚀 *¡Tu prototipo interactivo está listo!*\n\n"
+            f"🎨 *Prueba la aplicación aquí:*\n🔗 {link_prototipo}\n\n"
+            f"💬 *¿Qué opinas del diseño?* ¿Te gustaría agregarle alguna funcionalidad extra o deseas que comencemos con el desarrollo oficial de tu software?"
+        )
         send_green_api_message(client_phone, summary)
         print(f"--- PROTOTIPO ENTREGADO A {client_phone} ---")
 
-        # 2. MENSAJE 2: Propuesta Comercial
+        # 5. MENSAJE 2: Propuesta Comercial Resumida
         if proposal:
             proposal_msg = f"📋 *Propuesta Comercial:*\n\n{proposal}"
             
@@ -202,8 +209,7 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
                 if os.path.exists(local_filename):
                     os.remove(local_filename)
 
-    # 2. Si es TEXTO CONVENCIONAL
-    # 2. Si es TEXTO CONVENCIONAL
+        # 2. Si es TEXTO CONVENCIONAL
     elif type_message in ["textMessage", "extendedTextMessage"]:
         text_data = message_data.get("textMessageData", {}) or message_data.get("extendedTextMessageData", {})
         transcription_text = text_data.get("textMessage", "") or text_data.get("text", "")
@@ -223,7 +229,9 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     current_state["extracted_info"] = discovery_result["extracted_info"]
     current_state["is_ready_for_mvp"] = discovery_result["is_ready_for_mvp"]
     current_state["followup_question"] = discovery_result["followup_question"]
+    current_state["is_interested"] = discovery_result["is_interested"]
     current_state["chat_history"] = discovery_result["chat_history"]
+    current_state["lead_status"] = discovery_result["lead_status"]
     
     session_storage[client_phone] = current_state
 

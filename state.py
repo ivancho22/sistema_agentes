@@ -20,3 +20,6 @@ class AgentState(TypedDict):
     # Determina si ya estamos listos para pasar a los siguientes agentes
     is_ready_for_mvp: bool
     commercial_proposal: Optional[str]
+    is_interested: Optional[bool]       # True si quiere contratar
+    feedback_notes: Optional[str]       # Ajustes solicitados para la V2, V3...
+    lead_status: Optional[str]          # 'EN_NEGOCIACION', 'INTERESADO', 'REVISION'
