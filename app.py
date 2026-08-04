@@ -61,7 +61,7 @@ def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url:
     try:
         clean_phone = clean_phone_number(client_phone)
         
-        # 💡 Aseguramos que el teléfono esté disponible en todos los niveles del estado
+        # 💡 Aseguramos disponibilidad del teléfono en todos los niveles del estado
         current_state["client_phone"] = client_phone
         if "extracted_info" not in current_state or not isinstance(current_state["extracted_info"], dict):
             current_state["extracted_info"] = {}
@@ -69,19 +69,18 @@ def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url:
 
         print(f"--- INICIANDO GRAFO DE FACTORÍA PARA {clean_phone} ---")
         
-        # 1. Ejecutar el grafo con los 5 agentes
+        # 1. Ejecutar el grafo de 5 agentes
         updated_state = app_graph.invoke(current_state)
         session_storage[client_phone] = updated_state
         
         proposal = updated_state.get("commercial_proposal", "")
-        clean_phone = clean_phone_number(client_phone)
         
         # 2. Construir la URL del prototipo
         host_url = os.getenv("RENDER_EXTERNAL_URL", "https://coreia-factory.onrender.com")
         link_prototipo = f"{host_url}/prototipo/{clean_phone}"
         
-        # 3. Guardar el Lead con la información del prototipo recién generado
-        updated_state["lead_status"] = "PROTOTIPO_Y_OFERTA_ENTREGADOS"
+        # 3. Guardar el Lead en Supabase marcando la entrega del prototipo
+        updated_state["lead_status"] = "PROTOTIPO_ENTREGADO"
         save_lead(client_phone, updated_state, custom_status="PROTOTIPO_ENTREGADO")
 
         # 4. MENSAJE 1: Notificación del Prototipo + Pregunta de Cierre
@@ -91,7 +90,7 @@ def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url:
             f"💬 *¿Qué opinas del diseño?* ¿Te gustaría agregarle alguna funcionalidad extra o deseas que comencemos con el desarrollo oficial de tu software?"
         )
         send_green_api_message(client_phone, summary)
-        print(f"--- PROTOTIPO ENTREGADO A {client_phone} ---")
+        print(f"--- PROTOTIPO ENTREGADO A {clean_phone} ---")
 
         # 5. MENSAJE 2: Propuesta Comercial Resumida
         if proposal:
@@ -101,7 +100,7 @@ def run_agent_factory_in_background(current_state, client_phone: str, ngrok_url:
                 proposal_msg = proposal_msg[:1450] + "\n\n...(Propuesta resumida para WhatsApp. Revisa el prototipo para más detalles)."
 
             send_green_api_message(client_phone, proposal_msg)
-            print(f"--- PROPUESTA COMERCIAL ENTREGADA A {client_phone} ---")
+            print(f"--- PROPUESTA COMERCIAL ENTREGADA A {clean_phone} ---")
             
     except Exception as e:
         print(f"❌ ERROR EN FACTORÍA: {e}")
@@ -237,7 +236,7 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     from agents.discovery import run_discovery_agent
     discovery_result = run_discovery_agent(current_state)
     
-    # 💡 RESET SI CAMBIA DE IDEA: Si discovery detecta una NUEVA_CONSULTA, limpiamos la info vieja
+    # RESET SI CAMBIA DE IDEA: Si discovery detecta una NUEVA_CONSULTA, limpiamos la info vieja
     if discovery_result.get("lead_status") == "NUEVA_CONSULTA":
         print("🔄 DETECTADO NUEVO PROYECTO: Limpiando memoria de la sesión...")
         current_state["extracted_info"] = discovery_result["extracted_info"]
@@ -252,6 +251,9 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     current_state["lead_status"] = discovery_result["lead_status"]
     
     session_storage[client_phone] = current_state
+
+    # 💡 AJUSTE CLAVE AQUÍ: Guardamos en Supabase el estado de la consulta en CADA MENSAJE
+    save_lead(client_phone, current_state)
 
     # Definir la respuesta según el estado
     if current_state["is_ready_for_mvp"]:

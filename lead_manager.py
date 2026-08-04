@@ -1,11 +1,7 @@
 import os
-import json
 from datetime import datetime
 from supabase import create_client, Client
 
-LEADS_FILE = "leads_capturados.json"
-
-# Configuración de Supabase desde variables de entorno
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
@@ -14,43 +10,42 @@ if SUPABASE_URL and SUPABASE_KEY:
     try:
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     except Exception as e:
-        print(f"⚠️ No se pudo conectar a Supabase: {e}")
+        print(f"⚠️ Error conectando con Supabase: {e}")
 
-def save_lead(client_id: str, state: dict, custom_status: str = None):
-    """Guarda o actualiza la información del lead tanto en JSON local como en Supabase."""
-    status = custom_status or state.get("lead_status", "CONSULTA_INCOMPLETA")
+def save_lead(client_phone: str, state_data: dict, custom_status: str = None):
+    """
+    Guarda o actualiza el registro del lead en Supabase en CADA interacción.
+    """
+    if not supabase:
+        print("⚠️ Supabase no está configurado correctamente.")
+        return False
+
+    clean_phone = str(client_phone).replace("whatsapp_", "").replace(":", "_").replace("+", "").replace("@c.us", "").strip()
     
-    lead_data = {
-        "client_id": client_id,
-        "fecha_ultima_actividad": datetime.now().isoformat(),
-        "estado_lead": status,
-        "es_cliente_interesado": state.get("is_interested", False),
-        "informacion_extraida": state.get("extracted_info", {}),
-        "propuesta_comercial": state.get("commercial_proposal", "Pendiente"),
-        "ruta_prototipo": state.get("prototype_path", "Pendiente"),
-        "historial_mensajes_count": len(state.get("chat_history", []))
+    extracted = state_data.get("extracted_info", {})
+    lead_status = custom_status or state_data.get("lead_status", "EN_CONSULTA")
+    is_interested = state_data.get("is_interested", False)
+    
+    # Campo booleano si la persona decidió contratar o avanzar
+    es_cliente_contratado = is_interested or (lead_status in ["LISTO_PARA_CONTRATAR", "CONTRATADO"])
+
+    payload = {
+        "client_id": clean_phone,
+        "fecha_ultima_actividad": datetime.utcnow().isoformat(),
+        "estado_lead": lead_status,
+        "idea_proyecto": extracted.get("core_feature", "No especificado"),
+        "plataforma": extracted.get("platform", "Web"),
+        "publico_objetivo": extracted.get("target_audience", "General"),
+        "es_cliente_contratado": es_cliente_contratado,
+        "historial_chat": state_data.get("chat_history", []),
+        "propuesta_comercial": state_data.get("commercial_proposal", "")
     }
 
-    # 1. Guardar de respaldo en JSON Local
     try:
-        leads = {}
-        if os.path.exists(LEADS_FILE):
-            with open(LEADS_FILE, "r", encoding="utf-8") as f:
-                leads = json.load(f)
-        leads[client_id] = lead_data
-        with open(LEADS_FILE, "w", encoding="utf-8") as f:
-            json.dump(leads, f, ensure_ascii=False, indent=4)
-    except Exception as err:
-        print(f"❌ Error al guardar en JSON local: {err}")
-
-    # 2. Sincronizar en Supabase (Esquema Public)
-    if supabase:
-        try:
-            # Especificar el esquema public
-            supabase.schema("public").table("leads_coreia").upsert(
-                lead_data, 
-                on_conflict="client_id"
-            ).execute()
-            print(f"☁️ [SUPABASE] Lead '{client_id}' sincronizado exitosamente.")
-        except Exception as e:
-            print(f"❌ [SUPABASE ERROR]: {e}")
+        # Usamos upsert para actualizar por 'client_id' o crear la fila si no existe
+        response = supabase.table("leads_coreia").upsert(payload, on_conflict="client_id").execute()
+        print(f"✅ [SUPABASE] LEAD REGISTRADO/ACTUALIZADO PARA {clean_phone} CON ESTADO: {lead_status}")
+        return True
+    except Exception as e:
+        print(f"❌ Error guardando lead en Supabase: {e}")
+        return False
