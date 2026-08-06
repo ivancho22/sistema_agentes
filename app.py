@@ -6,6 +6,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from agents.discovery import run_discovery_agent
+import asyncio
+
+from fastapi import Request, BackgroundTasks
+from fastapi.responses import JSONResponse
 
 from lead_manager import save_lead
 from audio_handler import AudioProcessor
@@ -169,7 +173,7 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
         return JSONResponse(content={"status": "ignored_webhook_type"}, status_code=200)
 
     sender_data = data.get("senderData", {})
-    client_phone = sender_data.get("chatId") # Viene en formato: '573102476744@c.us'
+    client_phone = sender_data.get("chatId") # Formato: '573102476744@c.us'
     
     if not client_phone:
         return JSONResponse(content={"status": "no_sender_id"}, status_code=200)
@@ -233,15 +237,18 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
 
     current_state["last_transcription"] = transcription_text
 
+    # 🛡️ AJUSTE ANTI-BAN 1: Pausa asíncrona de "lectura/escritura" humana (2.5 segundos)
+    await asyncio.sleep(2.5)
+
     # Ejecución del agente de descubrimiento
     from agents.discovery import run_discovery_agent
     discovery_result = run_discovery_agent(current_state)
     
-    # RESET SI CAMBIA DE IDEA: Si discovery detecta una NUEVA_CONSULTA, limpiamos la info vieja
+    # RESET SI CAMBIA DE IDEA
     if discovery_result.get("lead_status") == "NUEVA_CONSULTA":
         print("🔄 DETECTADO NUEVO PROYECTO: Limpiando memoria de la sesión...")
         current_state["extracted_info"] = discovery_result["extracted_info"]
-        current_state["chat_history"] = [] # Reiniciar historial
+        current_state["chat_history"] = []
         current_state["lead_status"] = "EN_CONSULTA"
         current_state["is_interested"] = False
     else:
@@ -255,10 +262,10 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     
     session_storage[client_phone] = current_state
 
-    # 💡 Guardar en Supabase en cada interacción
+    # Guardar en Supabase
     save_lead(client_phone, current_state)
 
-    # 💡 CONTROL DE FACTORÍA: Solo bloquear si el estado ACTUAL de esta misma consulta ya entregó prototipo
+    # CONTROL DE FACTORÍA
     current_status = current_state.get("lead_status", "")
     prototype_already_generated = current_status in [
         "PROTOTIPO_ENTREGADO", 
@@ -267,7 +274,7 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
         "CONTRATADO"
     ]
 
-    # Si está listo para MVP y aún no hemos lanzado la factoría para esta nueva consulta:
+    # Evaluación de respuesta
     if current_state.get("is_ready_for_mvp") and not prototype_already_generated:
         text_to_send = (
             "⚙️ *CoreIA Factory:* ¡Excelente! He recopilado toda la información requerida.\n\n"
@@ -278,6 +285,50 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     else:
         text_to_send = current_state.get("followup_question") or "¡Excelente! ¿Te gustaría que agendemos una reunión para revisar los detalles?"
 
+    # Enviar mensaje con el emisor seguro (con split si es largo)
     send_green_api_message(client_phone, text_to_send)
 
     return JSONResponse(content={"status": "ok"}, status_code=200)
+
+
+# 🛡️ AJUSTE ANTI-BAN 2: Función de envío reforzada
+def send_green_api_message(chat_id: str, text: str):
+    import time
+    
+    green_host = os.getenv("GREEN_API_HOST", "7105.api.greenapi.com")
+    green_id = os.getenv("GREEN_ID_INSTANCE", "")
+    green_token = os.getenv("GREEN_API_TOKEN", "")
+    
+    url = f"https://{green_host}/waInstance{green_id}/sendMessage/{green_token}"
+    headers = {'Content-Type': 'application/json'}
+    
+    MAX_LENGTH = 600
+    
+    # Dividir mensajes largos para simular patrones naturales
+    if len(text) > MAX_LENGTH:
+        paragraphs = text.split("\n\n")
+        chunks = []
+        current_chunk = ""
+        
+        for p in paragraphs:
+            if len(current_chunk) + len(p) < MAX_LENGTH:
+                current_chunk += p + "\n\n"
+            else:
+                chunks.append(current_chunk.strip())
+                current_chunk = p + "\n\n"
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+            
+        for chunk in chunks:
+            payload = {"chatId": chat_id, "message": chunk}
+            try:
+                requests.post(url, json=payload, headers=headers, timeout=10)
+            except Exception as e:
+                print(f"Error enviando fragmento de Green API: {e}")
+            time.sleep(1.5)  # Pausa entre fragmentos
+    else:
+        payload = {"chatId": chat_id, "message": text}
+        try:
+            requests.post(url, json=payload, headers=headers, timeout=10)
+        except Exception as e:
+            print(f"Error enviando a Green API: {e}")
